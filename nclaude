@@ -1,0 +1,88 @@
+#!/usr/bin/expect -f
+
+# State tracking
+set state "IDLE"
+set output_start_time 0
+set last_output_time 0
+set working_threshold 0.1
+set silence_threshold 2.0
+
+# Spawn claude
+log_user 1
+set work_dir [pwd]
+spawn claude {*}$argv
+set claude_pid $spawn_id
+
+proc check_silence {} {
+    global state last_output_time silence_threshold work_dir
+
+    if {$state eq "WORKING"} {
+        set now [clock seconds]
+        set elapsed [expr {$now - $last_output_time}]
+
+        if {$elapsed >= $silence_threshold} {
+            # Claude has stopped working, send notification
+            exec notify-send "Claude" "Finished working in $work_dir"
+            set state "IDLE"
+        } else {
+            # Check again later
+            after [expr {int(($silence_threshold - $elapsed + 0.5) * 1000)}] check_silence
+        }
+    }
+}
+
+proc check_working {} {
+    global state output_start_time working_threshold last_output_time silence_threshold
+
+    if {$state eq "USER_TYPED"} {
+        set now [clock seconds]
+        set elapsed [expr {$now - $output_start_time}]
+
+        # Check if we've been outputting for long enough and recently
+        set since_last [expr {$now - $last_output_time}]
+
+        if {$elapsed >= $working_threshold && $since_last < 1.0} {
+            # Enter WORKING state
+            set state "WORKING"
+            # Start monitoring for silence
+            after [expr {int($silence_threshold * 1000)}] check_silence
+        } elseif {$since_last < 1.0} {
+            # Still outputting but not long enough yet, check again
+            after 500 check_working
+        }
+    }
+}
+
+# Monitor output in background
+expect_background {
+    -re ".+" {
+        # Track output timing for state machine
+        global state output_start_time last_output_time working_threshold
+        set now [clock seconds]
+        set last_output_time $now
+
+        if {$state eq "USER_TYPED"} {
+            # Start timing from first output after user input
+            if {$output_start_time == 0} {
+                set output_start_time $now
+                after 500 check_working
+            }
+        } elseif {$state eq "WORKING"} {
+            # Reset the silence check timer
+            after cancel check_silence
+            after [expr {int($silence_threshold * 1000)}] check_silence
+        }
+    }
+}
+
+# Pass through all I/O while monitoring for user input
+interact {
+    "\r" {
+        # User pressed enter - reset state and timers
+        global state output_start_time last_output_time
+        set state "USER_TYPED"
+        set output_start_time 0
+        set last_output_time 0
+        send "\r"
+    }
+}
