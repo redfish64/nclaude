@@ -68,6 +68,10 @@ Two scheduled callbacks manage state transitions:
 - `check_working`: Monitors if output duration exceeds the working threshold
 - `check_silence`: Monitors if silence duration exceeds the silence threshold
 
+## Known Limitations
+
+- **Ctrl-Z is disabled**: Pressing Ctrl-Z will be ignored. This prevents the terminal from freezing when the underlying Claude process is suspended. If you need to background the process, use Ctrl-C to exit or consider using a terminal multiplexer like tmux.
+
 ## License
 
 Free for everybody! Guaranteed to work or TRIPLE your money back!

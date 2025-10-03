@@ -77,6 +77,9 @@ expect_background {
 
 # Pass through all I/O while monitoring for user input
 interact {
+    "\032" {
+        # Ctrl-Z - ignore to prevent suspension freeze
+    }
     "\r" {
         # User pressed enter - reset state and timers
         global state output_start_time last_output_time
