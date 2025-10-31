@@ -40,7 +40,7 @@ The script uses a state machine to detect when Claude is working:
 
 1. **IDLE**: Waiting for user input
 2. **USER_TYPED**: User submitted input, Claude is responding
-3. **WORKING**: Claude has been outputting continuously for ≥3 seconds
+3. **WORKING**: Claude has been outputting continuously for ≥0.1 seconds
 
 When Claude remains silent for ≥2 seconds while in the WORKING state, a notification is sent via `notify-send`.
 
