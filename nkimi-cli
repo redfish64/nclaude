@@ -1,0 +1,135 @@
+#!/bin/bash
+# Wrapper to set process name for nkimi-cli
+exec -a nkimi-cli /usr/bin/expect /dev/fd/3 "$@" 3<<'EXPECT_SCRIPT'
+# State tracking
+set state "IDLE"
+set output_start_time 0
+set last_output_time 0
+set working_threshold 0.1
+set silence_threshold 2.0
+
+# This regex matches:
+# 1. ANSI escape sequences: \x1b followed by [ and parameters
+# 2. Basic whitespace: \s (spaces, tabs, newlines, carriage returns)
+# 3. The clock/status text: digits, colons, and "agent" or "context" keywords
+set noise_pattern {[a-z0-9_]+@.+💫|^([\x1b]\[[0-9;?]*[a-zA-Z]|\s|[0-9:]|agent|context|thinking|ctrl-)+$}
+
+# Spawn kimi-cli
+log_user 1
+set work_dir [pwd]
+spawn kimi-cli {*}$argv
+set kimi_cli_pid $spawn_id
+
+proc reset_state {} {
+    global state output_start_time last_output_time
+    set state "USER_TYPED"
+    set output_start_time 0
+    set last_output_time 0
+
+    # send_user "\nDEBUG: reset_state\n"
+}
+
+proc check_silence {} {
+    global state last_output_time silence_threshold work_dir
+    # send_user "\nDEBUG: check silence\n"
+
+    if {$state eq "WORKING"} {
+        # send_user "\nDEBUG: check silence while working!!!\n"
+        set now [clock seconds]
+        set elapsed [expr {$now - $last_output_time}]
+
+        if {$elapsed >= $silence_threshold} {
+            # send_user "\nDEBUG: notify!\n"
+            # Kimi has stopped working, send notification
+            exec notify-send "Kimi" "Finished working in $work_dir"
+            set state "IDLE"
+        } else {
+            # Check again later
+            after [expr {int(($silence_threshold - $elapsed + 0.5) * 1000)}] check_silence
+        }
+    }
+}
+
+proc check_working {} {
+    global state output_start_time working_threshold last_output_time silence_threshold
+
+    if {$state eq "USER_TYPED"} {
+        set now [clock seconds]
+        set elapsed [expr {$now - $output_start_time}]
+
+        # Check if we've been outputting for long enough and recently
+        set since_last [expr {$now - $last_output_time}]
+
+        if {$elapsed >= $working_threshold && $since_last < 1.0} {
+            # Enter WORKING state
+            set state "WORKING"
+            # Start monitoring for silence
+            after [expr {int($silence_threshold * 1000)}] check_silence
+        } elseif {$since_last < 1.0} {
+            # Still outputting but not long enough yet, check again
+            after 500 check_working
+        }
+    }
+}
+
+# Monitor output in background
+expect_background {
+    -re ".+" {
+        global state output_start_time last_output_time working_threshold noise_pattern
+        
+        # Access the actual string matched by expect
+        set current_match $expect_out(buffer)
+
+        # If the output is ONLY the clock/ANSI codes, ignore it
+        if {[regexp $noise_pattern $current_match]} {
+        } else {
+            # Capture the raw buffer
+            set raw_data $expect_out(buffer)
+
+            # Open a debug log in append mode
+            set fp [open "kimi_debug.log" a]
+            
+            # Convert raw bytes to hex pairs
+            binary scan $raw_data H* hex_out
+            
+            # Write the human-readable timestamp, hex, and plain text
+            puts $fp "--- [clock format [clock seconds] -format %H:%M:%S] ---"
+            puts $fp "HEX: $hex_out"
+            puts $fp "TXT: $raw_data"
+            close $fp
+            
+            # Track output timing for state machine
+            set now [clock seconds]
+            set last_output_time $now
+
+            if {$state eq "USER_TYPED"} {
+                # send_user "\nDEBUG: USER_TYPED!!!\n"
+                # Start timing from first output after user input
+                if {$output_start_time == 0} {
+                    set output_start_time $now
+                    after 500 check_working
+                }
+            } elseif {$state eq "WORKING"} {
+                # send_user "\nDEBUG: WORKING!!!\n"
+
+                # Reset the silence check timer
+                after cancel check_silence
+                after [expr {int($silence_threshold * 1000)}] check_silence
+            }
+        }
+    }
+}
+
+# Pass through all I/O while monitoring for user input
+interact {
+    "\032" {
+        # Ctrl-Z - ignore to prevent suspension freeze
+    }
+    "\r" {
+        # User pressed enter - reset state and timers
+        # send_user "\nDEBUG: user pressed rrr\n"
+        reset_state
+        send "\r"
+    }
+}
+EXPECT_SCRIPT
