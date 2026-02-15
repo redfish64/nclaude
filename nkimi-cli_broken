@@ -12,7 +12,7 @@ set silence_threshold 2.0
 # 1. ANSI escape sequences: \x1b followed by [ and parameters
 # 2. Basic whitespace: \s (spaces, tabs, newlines, carriage returns)
 # 3. The clock/status text: digits, colons, and "agent" or "context" keywords
-set noise_pattern {[a-z0-9_]+@.+💫|^([\x1b]\[[0-9;?]*[a-zA-Z]|\s|[0-9:]|agent|context|thinking|ctrl-)+$}
+set noise_pattern {[a-z0-9_]+@.+💫|^([\x1b]\[[0-9;?]*[a-zA-Z]|\s|[0-9:]|agent|context|thinking|ctrl-|)+$}
 
 # Spawn kimi-cli
 log_user 1
